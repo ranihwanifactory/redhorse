@@ -21,11 +21,14 @@ const Lobby: React.FC<LobbyProps> = ({ user }) => {
     const unsubscribe = onValue(roomsRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
-        const roomList: Room[] = Object.entries(data).map(([id, room]: [string, any]) => ({
-          id,
-          ...room
-        }));
-        setRooms(roomList.filter(r => r.status === 'waiting'));
+        const roomList: Room[] = Object.entries(data)
+          .map(([id, room]: [string, any]) => ({
+            id,
+            ...room
+          }))
+          // Only show waiting rooms and ensure room has valid properties
+          .filter(r => r.status === 'waiting' && r.name && r.players);
+        setRooms(roomList);
       } else {
         setRooms([]);
       }
@@ -101,14 +104,18 @@ const Lobby: React.FC<LobbyProps> = ({ user }) => {
           <button
             onClick={createRoom}
             disabled={isCreating}
-            className="bg-yellow-400 hover:bg-yellow-500 text-red-700 font-black px-8 py-4 rounded-2xl shadow-lg transform active:scale-95 transition-all text-xl"
+            className="bg-yellow-400 hover:bg-yellow-300 text-red-700 font-black px-8 py-4 rounded-2xl shadow-lg transform active:scale-95 transition-all text-xl"
           >
             {isCreating ? '생성 중...' : '방 만들기!'}
           </button>
         </div>
       </div>
 
-      <h3 className="text-2xl font-bold text-gray-800 mb-4 px-2">진행 중인 대기방 {rooms.length}개</h3>
+      <div className="flex items-center justify-between mb-4 px-2">
+          <h3 className="text-2xl font-bold text-gray-800">진행 중인 대기방</h3>
+          <span className="bg-orange-100 text-orange-600 px-3 py-1 rounded-full text-sm font-bold">{rooms.length}개</span>
+      </div>
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {rooms.length > 0 ? (
           rooms.map((room) => (
@@ -123,8 +130,9 @@ const Lobby: React.FC<LobbyProps> = ({ user }) => {
             </div>
           ))
         ) : (
-          <div className="col-span-2 text-center py-12 bg-gray-50 rounded-3xl border-2 border-dashed border-gray-200">
-            <p className="text-gray-400 text-lg">아직 열린 경기장이 없어요. 첫 번째 방을 만들어보세요!</p>
+          <div className="col-span-full text-center py-12 bg-white rounded-3xl border-4 border-dashed border-gray-100">
+            <div className="text-5xl mb-4">💤</div>
+            <p className="text-gray-400 text-lg">아직 열린 경기장이 없어요.<br/>첫 번째 방을 만들어보세요!</p>
           </div>
         )}
       </div>

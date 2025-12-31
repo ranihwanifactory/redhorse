@@ -17,8 +17,7 @@ const GameRoom: React.FC<GameRoomProps> = ({ user, roomId, onLeave }) => {
   const [room, setRoom] = useState<Room | null>(null);
   const [countdown, setCountdown] = useState<number | null>(null);
   const [showTapEffect, setShowTapEffect] = useState(false);
-  const tapAudioRef = useRef<HTMLAudioElement | null>(null);
-
+  
   const roomRef = ref(db, `rooms/${roomId}`);
 
   useEffect(() => {
@@ -31,19 +30,19 @@ const GameRoom: React.FC<GameRoomProps> = ({ user, roomId, onLeave }) => {
       setRoom({ id: roomId, ...data });
     });
 
-    // Host disconnect logic
-    const hostCheck = onValue(roomRef, (snapshot) => {
-      const data = snapshot.val();
-      if (data && data.hostId === user.uid) {
-        onDisconnect(roomRef).remove();
-      }
-    });
+    // Handle host disconnect logic
+    const hostCheckRef = ref(db, `rooms/${roomId}`);
+    onValue(hostCheckRef, (snapshot) => {
+        const data = snapshot.val();
+        if (data && data.hostId === user.uid) {
+            onDisconnect(hostCheckRef).remove();
+        }
+    }, { onlyOnce: true });
 
     return () => {
       unsubscribe();
-      hostCheck();
     };
-  }, [roomId, user.uid]);
+  }, [roomId, user.uid, onLeave]);
 
   // Handle joining if not in players list
   useEffect(() => {
@@ -80,7 +79,7 @@ const GameRoom: React.FC<GameRoomProps> = ({ user, roomId, onLeave }) => {
       }, 1000);
       return () => clearInterval(timer);
     }
-  }, [room?.status]);
+  }, [room?.status, room?.hostId, user.uid, roomRef]);
 
   const toggleReady = () => {
     if (!room) return;
@@ -97,7 +96,8 @@ const GameRoom: React.FC<GameRoomProps> = ({ user, roomId, onLeave }) => {
     if (!room || room.status !== 'playing' || room.winnerId) return;
 
     const currentPlayer = room.players[user.uid];
-    const newProgress = Math.min(currentPlayer.progress + 1.5, 100);
+    // Reduced from 1.5 to 0.7 to make the race longer (~143 taps to finish)
+    const newProgress = Math.min(currentPlayer.progress + 0.7, 100);
 
     const updates: any = {};
     updates[`players/${user.uid}/progress`] = newProgress;
@@ -109,7 +109,6 @@ const GameRoom: React.FC<GameRoomProps> = ({ user, roomId, onLeave }) => {
 
     update(roomRef, updates);
     
-    // Visual feedback
     setShowTapEffect(true);
     setTimeout(() => setShowTapEffect(false), 50);
   };
@@ -128,15 +127,43 @@ const GameRoom: React.FC<GameRoomProps> = ({ user, roomId, onLeave }) => {
     });
   };
 
-  const shareLink = () => {
-    const url = `${window.location.origin}${window.location.pathname}#/room/${roomId}`;
-    navigator.clipboard.writeText(url);
-    alert('경기장 링크가 복사되었습니다! 친구들에게 공유하세요.');
+  const shareRoom = async () => {
+    const shareData = {
+      title: '2026 병오년 말달리기',
+      text: `${user.displayName}님이 경기장에 초대했습니다! 함께 달려보아요!`,
+      url: `${window.location.origin}${window.location.pathname}#/room/${roomId}`,
+    };
+
+    try {
+      if (navigator.share) {
+        await navigator.share(shareData);
+      } else {
+        await navigator.clipboard.writeText(shareData.url);
+        alert('링크가 복사되었습니다!');
+      }
+    } catch (err) {
+      console.error('Share failed', err);
+    }
+  };
+
+  const handleManualLeave = async () => {
+    if (room && room.hostId === user.uid) {
+      if (confirm('방장이 나가면 방이 사라집니다. 정말 나가시겠습니까?')) {
+        await remove(roomRef);
+        onLeave();
+      }
+    } else {
+      // Non-host just leaves
+      if (room) {
+          const playerRef = ref(db, `rooms/${roomId}/players/${user.uid}`);
+          await remove(playerRef);
+      }
+      onLeave();
+    }
   };
 
   if (!room) return null;
 
-  // Fix: Explicitly type players as Player[] to avoid 'unknown' type issues with Object.values
   const players = Object.values(room.players) as Player[];
   const isHost = room.hostId === user.uid;
   const allReady = players.length > 1 && players.every(p => p.isReady || p.uid === room.hostId);
@@ -146,13 +173,16 @@ const GameRoom: React.FC<GameRoomProps> = ({ user, roomId, onLeave }) => {
       {/* Header */}
       <div className="p-4 bg-white shadow-md flex justify-between items-center z-10">
         <div className="flex items-center gap-2">
-          <button onClick={onLeave} className="p-2 hover:bg-gray-100 rounded-full">
+          <button onClick={handleManualLeave} className="p-2 hover:bg-gray-100 rounded-full">
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7"></path></svg>
           </button>
           <h2 className="font-bold text-lg text-gray-800">{room.name}</h2>
         </div>
         <div className="flex gap-2">
-          <button onClick={shareLink} className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-xl text-sm font-bold shadow-sm">링크 공유</button>
+          <button onClick={shareRoom} className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-xl text-sm font-bold shadow-sm flex items-center gap-1">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"></path></svg>
+            방 공유
+          </button>
           {isHost && (
             <button onClick={() => remove(roomRef)} className="bg-red-100 text-red-600 px-4 py-2 rounded-xl text-sm font-bold">방 삭제</button>
           )}
@@ -161,15 +191,13 @@ const GameRoom: React.FC<GameRoomProps> = ({ user, roomId, onLeave }) => {
 
       {/* Track Area */}
       <div className="flex-1 relative bg-cover bg-center overflow-hidden flex flex-col justify-center gap-8 px-4" style={{ backgroundImage: `url('https://www.transparenttextures.com/patterns/grass.png')`, backgroundColor: '#34d399' }}>
-        {players.map((player, idx) => (
+        {players.map((player) => (
           <div key={player.uid} className="relative h-16 w-full bg-white bg-opacity-20 rounded-full border-2 border-white border-dashed">
-             {/* Progress Label */}
             <div className="absolute -top-6 left-0 flex items-center gap-2">
                 <img src={player.photoURL} className="w-5 h-5 rounded-full border border-white" alt="" />
                 <span className="text-white text-xs font-bold bg-black bg-opacity-30 px-2 rounded-full">{player.name}</span>
             </div>
 
-            {/* Finish Line */}
             <div className="absolute right-0 top-0 bottom-0 w-8 flex flex-col gap-1 justify-center items-center bg-white bg-opacity-40">
                 <div className="w-4 h-4 bg-black"></div>
                 <div className="w-4 h-4 bg-white"></div>
@@ -177,7 +205,6 @@ const GameRoom: React.FC<GameRoomProps> = ({ user, roomId, onLeave }) => {
                 <div className="w-4 h-4 bg-white"></div>
             </div>
 
-            {/* Horse */}
             <div 
               className={`absolute top-1/2 -translate-y-1/2 transition-all duration-150 ease-out flex flex-col items-center ${room.status === 'playing' ? 'animate-gallop' : ''}`}
               style={{ left: `${player.progress}%`, transform: `translate(-100%, -50%)` }}
@@ -188,8 +215,6 @@ const GameRoom: React.FC<GameRoomProps> = ({ user, roomId, onLeave }) => {
             </div>
           </div>
         ))}
-
-        {/* Start Line Marker */}
         <div className="absolute left-4 top-0 bottom-0 w-1 bg-white opacity-50 z-0"></div>
       </div>
 
@@ -249,7 +274,7 @@ const GameRoom: React.FC<GameRoomProps> = ({ user, roomId, onLeave }) => {
             >
               TAP!!
             </button>
-            <p className="text-orange-600 font-bold animate-pulse text-lg">최대한 빨리 터치하세요!</p>
+            <p className="text-orange-600 font-bold animate-pulse text-lg uppercase">연타 하세요!!!</p>
           </div>
         )}
 
