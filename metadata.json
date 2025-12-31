@@ -1,5 +1,11 @@
+
 {
   "name": "2026 Red Horse Racing",
+  "short_name": "RedHorse2026",
   "description": "A high-energy, multiplayer horse racing game celebrating the Year of the Fire Horse 2026. Tap as fast as you can to win!",
+  "theme_color": "#ef4444",
+  "background_color": "#fdf2f2",
+  "display": "standalone",
+  "start_url": "/",
   "requestFramePermissions": []
 }

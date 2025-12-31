@@ -1,0 +1,18 @@
+
+{
+  "name": "2026 병오년 대박 말달리기",
+  "short_name": "말달리기2026",
+  "description": "2026년 병오년 새해맞이 신나는 터치 말달리기 대결 게임!",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#fdf2f2",
+  "theme_color": "#ef4444",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/3532/3532662.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -3,7 +3,12 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#ef4444">
+    <link rel="manifest" href="manifest.json">
+    <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/3532/3532662.png">
     <title>2026 Red Horse Race</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Jua&display=swap" rel="stylesheet">
@@ -11,8 +16,9 @@
         body {
             font-family: 'Jua', sans-serif;
             margin: 0;
-            overflow-x: hidden;
+            overflow: hidden;
             background: #fdf2f2;
+            touch-action: manipulation; /* Prevent double-tap zoom */
         }
         @keyframes gallop {
             0%, 100% { transform: translateY(0) rotate(0); }
@@ -29,10 +35,6 @@
         .animate-pulse-custom {
             animation: pulse-custom 2s infinite;
         }
-        @keyframes fire-glow {
-            0%, 100% { opacity: 0.8; transform: scale(1); }
-            50% { opacity: 1; transform: scale(1.1); }
-        }
         .fire-bg {
             background: radial-gradient(circle, #f87171 0%, #ef4444 100%);
         }
@@ -42,6 +44,10 @@
         @keyframes slide-in {
             from { transform: translateX(-100vw) translateY(0); }
             to { transform: translateX(0) translateY(0); }
+        }
+        /* Mobile specific adjustments */
+        @media (max-width: 640px) {
+            .text-9xl { font-size: 6rem; }
         }
     </style>
 <script type="importmap">
@@ -58,6 +64,13 @@
 </head>
 <body>
     <div id="root"></div>
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/sw.js').catch(err => console.log('SW registration failed:', err));
+            });
+        }
+    </script>
 <script type="module" src="/index.tsx"></script>
 </body>
 </html>
