@@ -1,10 +1,14 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import { auth } from './firebase';
 import Auth from './components/Auth';
 import Lobby from './components/Lobby';
 import GameRoom from './components/GameRoom';
+
+// Audio sources
+const LOBBY_BGM = "https://cdn.pixabay.com/audio/2022/05/27/audio_1ab7a7d0e4.mp3"; // Upbeat joyful
+const CLICK_SFX = "https://cdn.pixabay.com/audio/2022/03/15/audio_73060c1d63.mp3"; // Pop/Click
 
 const Intro: React.FC<{ onStart: () => void }> = ({ onStart }) => (
   <div className="fixed inset-0 z-50 fire-bg flex flex-col items-center justify-center p-6 text-white overflow-hidden">
@@ -35,6 +39,9 @@ const App: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [showIntro, setShowIntro] = useState(true);
   const [currentRoomId, setCurrentRoomId] = useState<string | null>(null);
+  const [isMuted, setIsMuted] = useState(false);
+  
+  const bgmRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
     const handleHash = () => {
@@ -42,7 +49,7 @@ const App: React.FC = () => {
       if (hash.startsWith('#/room/')) {
         const id = hash.replace('#/room/', '');
         setCurrentRoomId(id);
-        setShowIntro(false); // Skip intro if joining via link
+        setShowIntro(false);
       } else {
         setCurrentRoomId(null);
       }
@@ -62,31 +69,74 @@ const App: React.FC = () => {
     };
   }, []);
 
+  useEffect(() => {
+    if (!showIntro && user && !currentRoomId) {
+      if (!bgmRef.current) {
+        bgmRef.current = new Audio(LOBBY_BGM);
+        bgmRef.current.loop = true;
+        bgmRef.current.volume = 0.4;
+      }
+      if (!isMuted) {
+        bgmRef.current.play().catch(console.error);
+      } else {
+        bgmRef.current.pause();
+      }
+    } else if (currentRoomId || !user) {
+      bgmRef.current?.pause();
+    }
+    
+    return () => bgmRef.current?.pause();
+  }, [showIntro, user, currentRoomId, isMuted]);
+
+  const toggleMute = () => {
+    setIsMuted(!isMuted);
+    new Audio(CLICK_SFX).play().catch(() => {});
+  };
+
+  const startWithSound = () => {
+    // Unlock audio context by playing a silent sound or starting BGM
+    setShowIntro(false);
+    const silentPlay = new Audio(CLICK_SFX);
+    silentPlay.play().catch(() => {});
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-red-50 flex items-center justify-center">
         <div className="text-center">
           <div className="text-6xl animate-bounce mb-4">🐎</div>
-          <p className="text-red-600 font-bold text-xl">Loading New Year Energy...</p>
+          <p className="text-red-600 font-bold text-xl">새해 기운 모으는 중...</p>
         </div>
       </div>
     );
   }
 
   if (showIntro && !currentRoomId) {
-    return <Intro onStart={() => setShowIntro(false)} />;
-  }
-
-  if (!user) {
-    return <Auth />;
+    return <Intro onStart={startWithSound} />;
   }
 
   return (
-    <div className="min-h-screen bg-orange-50 font-sans">
-      {currentRoomId ? (
-        <GameRoom user={user} roomId={currentRoomId} onLeave={() => window.location.hash = ''} />
+    <div className="min-h-screen bg-orange-50 font-sans relative">
+      {/* Global Mute Toggle */}
+      {user && (
+        <button 
+          onClick={toggleMute}
+          className="fixed top-4 right-4 z-50 bg-white/80 p-2 rounded-full shadow-md border-2 border-orange-200 hover:bg-white transition-all active:scale-90"
+        >
+          {isMuted ? (
+            <svg className="w-6 h-6 text-gray-400" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M9.383 3.076A1 1 0 0110 4v12a1 1 0 01-1.707.707L4.586 13H2a1 1 0 01-1-1V8a1 1 0 011-1h2.586l3.707-3.707a1 1 0 011.09-.217zM12.293 7.293a1 1 0 011.414 0L15 8.586l1.293-1.293a1 1 0 111.414 1.414L16.414 10l1.293 1.293a1 1 0 01-1.414 1.414L15 11.414l-1.293 1.293a1 1 0 01-1.414-1.414L13.586 10l-1.293-1.293a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
+          ) : (
+            <svg className="w-6 h-6 text-orange-500" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M9.383 3.076A1 1 0 0110 4v12a1 1 0 01-1.707.707L4.586 13H2a1 1 0 01-1-1V8a1 1 0 011-1h2.586l3.707-3.707a1 1 0 011.09-.217zM14.657 2.929a1 1 0 011.414 0A9.972 9.972 0 0119 10a9.972 9.972 0 01-2.929 7.071 1 1 0 01-1.414-1.414A7.971 7.971 0 0017 10c0-2.21-.894-4.208-2.343-5.657a1 1 0 010-1.414zm-2.829 2.828a1 1 0 011.415 0A5.983 5.983 0 0115 10a5.984 5.984 0 01-1.757 4.243 1 1 0 01-1.415-1.415A3.984 3.984 0 0013 10a3.983 3.983 0 00-1.172-2.828 1 1 0 010-1.415z" clipRule="evenodd" /></svg>
+          )}
+        </button>
+      )}
+
+      {!user ? (
+        <Auth />
+      ) : currentRoomId ? (
+        <GameRoom user={user} roomId={currentRoomId} onLeave={() => window.location.hash = ''} isMuted={isMuted} />
       ) : (
-        <Lobby user={user} />
+        <Lobby user={user} isMuted={isMuted} />
       )}
     </div>
   );

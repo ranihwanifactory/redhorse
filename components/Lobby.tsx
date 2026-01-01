@@ -7,11 +7,13 @@ import { Room } from '../types';
 
 interface LobbyProps {
   user: User;
+  isMuted?: boolean;
 }
 
 const horseColors = ['#EF4444', '#F59E0B', '#10B981', '#3B82F6', '#8B5CF6', '#EC4899'];
+const CLICK_SFX = "https://cdn.pixabay.com/audio/2022/03/15/audio_73060c1d63.mp3";
 
-const Lobby: React.FC<LobbyProps> = ({ user }) => {
+const Lobby: React.FC<LobbyProps> = ({ user, isMuted = false }) => {
   const [rooms, setRooms] = useState<Room[]>([]);
   const [isCreating, setIsCreating] = useState(false);
   const [roomName, setRoomName] = useState('');
@@ -36,8 +38,14 @@ const Lobby: React.FC<LobbyProps> = ({ user }) => {
     return () => unsubscribe();
   }, []);
 
+  const playClick = () => {
+    if (isMuted) return;
+    new Audio(CLICK_SFX).play().catch(() => {});
+  };
+
   const createRoom = async () => {
     if (!roomName.trim()) return;
+    playClick();
     setIsCreating(true);
     const roomsRef = ref(db, 'rooms');
     const newRoomRef = push(roomsRef);
@@ -69,6 +77,7 @@ const Lobby: React.FC<LobbyProps> = ({ user }) => {
   };
 
   const joinRoom = (roomId: string) => {
+    playClick();
     window.location.hash = `#/room/${roomId}`;
   };
 
@@ -83,7 +92,7 @@ const Lobby: React.FC<LobbyProps> = ({ user }) => {
           </div>
         </div>
         <button
-          onClick={() => signOut(auth)}
+          onClick={() => { playClick(); signOut(auth); }}
           className="bg-gray-100 hover:bg-gray-200 text-gray-600 px-3 py-2 rounded-xl font-bold text-xs md:text-sm transition-colors"
         >
           로그아웃

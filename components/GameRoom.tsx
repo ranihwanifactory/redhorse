@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { User } from 'firebase/auth';
 import { ref, onValue, set, remove, onDisconnect, update } from 'firebase/database';
 import { db } from '../firebase';
@@ -9,18 +9,40 @@ interface GameRoomProps {
   user: User;
   roomId: string;
   onLeave: () => void;
+  isMuted?: boolean;
 }
 
 const horseColors = ['#EF4444', '#F59E0B', '#10B981', '#3B82F6', '#8B5CF6', '#EC4899'];
 
-const GameRoom: React.FC<GameRoomProps> = ({ user, roomId, onLeave }) => {
+// Audio Assets
+const RACE_BGM = "https://cdn.pixabay.com/audio/2022/01/18/audio_d0a13f69d2.mp3"; // Fast tension
+const GALLOP_SFX = "https://cdn.pixabay.com/audio/2022/03/10/audio_c3527855b3.mp3"; // Woodblock/Hoof
+const COUNTDOWN_SFX = "https://cdn.pixabay.com/audio/2021/08/09/audio_8816d77351.mp3"; // Beep
+const WIN_SFX = "https://cdn.pixabay.com/audio/2021/08/04/audio_0625c151cc.mp3"; // Fanfare
+const READY_SFX = "https://cdn.pixabay.com/audio/2022/03/15/audio_73060c1d63.mp3"; // Pop
+
+const GameRoom: React.FC<GameRoomProps> = ({ user, roomId, onLeave, isMuted = false }) => {
   const [room, setRoom] = useState<Room | null>(null);
   const [localCountdown, setLocalCountdown] = useState<number | null>(null);
   const [showTapEffect, setShowTapEffect] = useState(false);
   
   const roomRef = ref(db, `rooms/${roomId}`);
+  
+  // Audio Refs
+  const raceBgmRef = useRef<HTMLAudioElement | null>(null);
+  const gallopPool = useRef<HTMLAudioElement[]>([]);
+  const poolIndex = useRef(0);
 
   useEffect(() => {
+    // Initialize gallop sound pool for rapid taps
+    if (gallopPool.current.length === 0) {
+      for (let i = 0; i < 10; i++) {
+        const audio = new Audio(GALLOP_SFX);
+        audio.volume = 0.5;
+        gallopPool.current.push(audio);
+      }
+    }
+    
     const unsubscribe = onValue(roomRef, (snapshot) => {
       const data = snapshot.val();
       if (!data) {
@@ -30,32 +52,73 @@ const GameRoom: React.FC<GameRoomProps> = ({ user, roomId, onLeave }) => {
       setRoom({ id: roomId, ...data });
     });
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribe();
+      raceBgmRef.current?.pause();
+    };
   }, [roomId, onLeave]);
 
-  // Enhanced Host Sync and Cleanup
+  // Host Sync and Cleanup
   useEffect(() => {
     if (room && room.hostId === user.uid) {
-      // If host disconnects, the entire room node is removed
       onDisconnect(roomRef).remove();
     }
   }, [room?.hostId, user.uid, roomRef]);
 
-  // Robust Countdown Logic
+  // Handle Game State Audio
+  useEffect(() => {
+    if (!room) return;
+
+    if (room.status === 'playing') {
+      if (!raceBgmRef.current) {
+        raceBgmRef.current = new Audio(RACE_BGM);
+        raceBgmRef.current.loop = true;
+        raceBgmRef.current.volume = 0.5;
+      }
+      if (!isMuted) raceBgmRef.current.play().catch(() => {});
+    } else {
+      raceBgmRef.current?.pause();
+    }
+
+    if (room.status === 'finished') {
+      if (!isMuted) {
+        const winAudio = new Audio(WIN_SFX);
+        winAudio.volume = 0.6;
+        winAudio.play().catch(() => {});
+      }
+    }
+  }, [room?.status, isMuted]);
+
+  // Sync BGM Mute state
+  useEffect(() => {
+    if (raceBgmRef.current) {
+      if (isMuted) raceBgmRef.current.pause();
+      else if (room?.status === 'playing') raceBgmRef.current.play().catch(() => {});
+    }
+  }, [isMuted, room?.status]);
+
+  // Robust Countdown Logic with Sound
   useEffect(() => {
     if (room?.status === 'starting') {
       setLocalCountdown(3);
+      if (!isMuted) {
+        const beep = new Audio(COUNTDOWN_SFX);
+        beep.play().catch(() => {});
+      }
       
       const interval = setInterval(() => {
         setLocalCountdown((prev) => {
           if (prev === null) return null;
           if (prev <= 1) {
             clearInterval(interval);
-            // Only host updates the database to switch to playing
             if (room.hostId === user.uid) {
               update(roomRef, { status: 'playing' });
             }
             return null;
+          }
+          if (!isMuted) {
+            const beep = new Audio(COUNTDOWN_SFX);
+            beep.play().catch(() => {});
           }
           return prev - 1;
         });
@@ -65,26 +128,26 @@ const GameRoom: React.FC<GameRoomProps> = ({ user, roomId, onLeave }) => {
     } else {
       setLocalCountdown(null);
     }
-  }, [room?.status, room?.hostId, user.uid]);
+  }, [room?.status, room?.hostId, user.uid, isMuted]);
 
-  // Player joining logic
-  useEffect(() => {
-    if (room && !room.players[user.uid] && Object.keys(room.players).length < 4 && room.status === 'waiting') {
-      const playerRef = ref(db, `rooms/${roomId}/players/${user.uid}`);
-      set(playerRef, {
-        uid: user.uid,
-        name: user.displayName || user.email?.split('@')[0] || 'Player',
-        photoURL: user.photoURL || `https://picsum.photos/seed/${user.uid}/100/100`,
-        progress: 0,
-        isReady: false,
-        score: 0,
-        horseColor: horseColors[Math.floor(Math.random() * horseColors.length)]
-      });
-    }
-  }, [room, roomId, user]);
+  const playSfx = (url: string, vol = 0.5) => {
+    if (isMuted) return;
+    const sfx = new Audio(url);
+    sfx.volume = vol;
+    sfx.play().catch(() => {});
+  };
+
+  const playGallop = () => {
+    if (isMuted) return;
+    const audio = gallopPool.current[poolIndex.current];
+    audio.currentTime = 0;
+    audio.play().catch(() => {});
+    poolIndex.current = (poolIndex.current + 1) % gallopPool.current.length;
+  };
 
   const toggleReady = () => {
     if (!room) return;
+    playSfx(READY_SFX);
     const playerRef = ref(db, `rooms/${roomId}/players/${user.uid}/isReady`);
     set(playerRef, !room.players[user.uid].isReady);
   };
@@ -100,7 +163,8 @@ const GameRoom: React.FC<GameRoomProps> = ({ user, roomId, onLeave }) => {
     const currentPlayer = room.players[user.uid];
     if (!currentPlayer) return;
 
-    // Movement: 0.35 per tap means 100 / 0.35 = 285 taps to win.
+    playGallop();
+
     const newProgress = Math.min(currentPlayer.progress + 0.35, 100);
 
     const updates: any = {};
@@ -115,10 +179,11 @@ const GameRoom: React.FC<GameRoomProps> = ({ user, roomId, onLeave }) => {
     
     setShowTapEffect(true);
     setTimeout(() => setShowTapEffect(false), 50);
-  }, [room, roomRef, user.uid]);
+  }, [room, roomRef, user.uid, isMuted]);
 
   const resetGame = () => {
     if (!room) return;
+    playSfx(READY_SFX);
     const playersUpdate: any = {};
     Object.keys(room.players).forEach(uid => {
       playersUpdate[`players/${uid}/progress`] = 0;
@@ -132,6 +197,7 @@ const GameRoom: React.FC<GameRoomProps> = ({ user, roomId, onLeave }) => {
   };
 
   const shareRoom = async () => {
+    playSfx(READY_SFX);
     const shareData = {
       title: '2026 병오년 말달리기',
       text: `${user.displayName || '친구'}님이 경기장에 초대했습니다! 함께 달려보아요!`,
@@ -201,7 +267,6 @@ const GameRoom: React.FC<GameRoomProps> = ({ user, roomId, onLeave }) => {
                 <span className="text-white text-[10px] md:text-xs font-bold bg-black bg-opacity-30 px-2 rounded-full truncate max-w-[80px]">{player.name}</span>
             </div>
 
-            {/* Checkerboard Finish */}
             <div className="absolute right-0 top-0 bottom-0 w-6 md:w-8 flex flex-col gap-1 justify-center items-center bg-white bg-opacity-40">
                 <div className="w-3 md:w-4 h-3 md:h-4 bg-black"></div>
                 <div className="w-3 md:w-4 h-3 md:h-4 bg-white"></div>
@@ -209,7 +274,6 @@ const GameRoom: React.FC<GameRoomProps> = ({ user, roomId, onLeave }) => {
                 <div className="w-3 md:w-4 h-3 md:h-4 bg-white"></div>
             </div>
 
-            {/* Animated Horse */}
             <div 
               className={`absolute top-1/2 -translate-y-1/2 transition-all duration-200 ease-out flex flex-col items-center ${room.status === 'playing' ? 'animate-gallop' : ''}`}
               style={{ left: `${player.progress}%`, transform: `translate(-100%, -50%)` }}
@@ -251,7 +315,7 @@ const GameRoom: React.FC<GameRoomProps> = ({ user, roomId, onLeave }) => {
                   disabled={!allReady}
                   className={`flex-1 py-4 md:py-5 rounded-3xl font-black text-xl md:text-2xl shadow-xl transition-all transform active:scale-95 ${allReady ? 'bg-red-500 hover:bg-red-600 text-white border-b-4 border-red-800 active:border-b-0' : 'bg-gray-200 text-gray-400 cursor-not-allowed'}`}
                 >
-                  {allReady ? '경기 시작!!' : '친구들을 기다리세요'}
+                  {allReady ? '경기 시작!!' : '친구 대기 중...'}
                 </button>
               ) : (
                 <button
