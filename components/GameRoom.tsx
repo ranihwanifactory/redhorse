@@ -15,11 +15,11 @@ interface GameRoomProps {
 const horseColors = ['#EF4444', '#F59E0B', '#10B981', '#3B82F6', '#8B5CF6', '#EC4899'];
 
 // Audio Assets
-const RACE_BGM = "https://cdn.pixabay.com/audio/2022/01/18/audio_d0a13f69d2.mp3"; // Fast tension
-const GALLOP_SFX = "https://cdn.pixabay.com/audio/2022/03/10/audio_c3527855b3.mp3"; // Woodblock/Hoof
-const COUNTDOWN_SFX = "https://cdn.pixabay.com/audio/2021/08/09/audio_8816d77351.mp3"; // Beep
-const WIN_SFX = "https://cdn.pixabay.com/audio/2021/08/04/audio_0625c151cc.mp3"; // Fanfare
-const READY_SFX = "https://cdn.pixabay.com/audio/2022/03/15/audio_73060c1d63.mp3"; // Pop
+const RACE_BGM = "https://cdn.pixabay.com/audio/2022/01/18/audio_d0a13f69d2.mp3"; 
+const GALLOP_SFX = "https://cdn.pixabay.com/audio/2022/03/10/audio_c3527855b3.mp3"; 
+const COUNTDOWN_SFX = "https://cdn.pixabay.com/audio/2021/08/09/audio_8816d77351.mp3"; 
+const WIN_SFX = "https://cdn.pixabay.com/audio/2021/08/04/audio_0625c151cc.mp3"; 
+const READY_SFX = "https://cdn.pixabay.com/audio/2022/03/15/audio_73060c1d63.mp3"; 
 
 const GameRoom: React.FC<GameRoomProps> = ({ user, roomId, onLeave, isMuted = false }) => {
   const [room, setRoom] = useState<Room | null>(null);
@@ -57,6 +57,27 @@ const GameRoom: React.FC<GameRoomProps> = ({ user, roomId, onLeave, isMuted = fa
       raceBgmRef.current?.pause();
     };
   }, [roomId, onLeave]);
+
+  // Player joining logic - Enhanced to be more robust
+  useEffect(() => {
+    if (!room) return;
+    
+    const players = room.players || {};
+    const playerCount = Object.keys(players).length;
+
+    if (!players[user.uid] && playerCount < 4 && room.status === 'waiting') {
+      const playerRef = ref(db, `rooms/${roomId}/players/${user.uid}`);
+      set(playerRef, {
+        uid: user.uid,
+        name: user.displayName || user.email?.split('@')[0] || 'Player',
+        photoURL: user.photoURL || `https://picsum.photos/seed/${user.uid}/100/100`,
+        progress: 0,
+        isReady: false,
+        score: 0,
+        horseColor: horseColors[Math.floor(Math.random() * horseColors.length)]
+      });
+    }
+  }, [room?.status, room?.players, roomId, user]);
 
   // Host Sync and Cleanup
   useEffect(() => {
@@ -140,13 +161,15 @@ const GameRoom: React.FC<GameRoomProps> = ({ user, roomId, onLeave, isMuted = fa
   const playGallop = () => {
     if (isMuted) return;
     const audio = gallopPool.current[poolIndex.current];
-    audio.currentTime = 0;
-    audio.play().catch(() => {});
-    poolIndex.current = (poolIndex.current + 1) % gallopPool.current.length;
+    if (audio) {
+      audio.currentTime = 0;
+      audio.play().catch(() => {});
+      poolIndex.current = (poolIndex.current + 1) % gallopPool.current.length;
+    }
   };
 
   const toggleReady = () => {
-    if (!room) return;
+    if (!room || !room.players || !room.players[user.uid]) return;
     playSfx(READY_SFX);
     const playerRef = ref(db, `rooms/${roomId}/players/${user.uid}/isReady`);
     set(playerRef, !room.players[user.uid].isReady);
@@ -160,7 +183,7 @@ const GameRoom: React.FC<GameRoomProps> = ({ user, roomId, onLeave, isMuted = fa
   const handleTap = useCallback(() => {
     if (!room || room.status !== 'playing' || room.winnerId) return;
 
-    const currentPlayer = room.players[user.uid];
+    const currentPlayer = room.players?.[user.uid];
     if (!currentPlayer) return;
 
     playGallop();
@@ -182,7 +205,7 @@ const GameRoom: React.FC<GameRoomProps> = ({ user, roomId, onLeave, isMuted = fa
   }, [room, roomRef, user.uid, isMuted]);
 
   const resetGame = () => {
-    if (!room) return;
+    if (!room || !room.players) return;
     playSfx(READY_SFX);
     const playersUpdate: any = {};
     Object.keys(room.players).forEach(uid => {
@@ -231,11 +254,19 @@ const GameRoom: React.FC<GameRoomProps> = ({ user, roomId, onLeave, isMuted = fa
     }
   };
 
-  if (!room) return null;
+  if (!room) return (
+    <div className="flex items-center justify-center h-screen bg-orange-50">
+      <div className="text-center">
+        <div className="text-6xl animate-bounce mb-4">🐎</div>
+        <p className="text-red-600 font-bold text-xl">경기장 입장 중...</p>
+      </div>
+    </div>
+  );
 
-  const playersList = Object.values(room.players) as Player[];
+  const playersList = room.players ? Object.values(room.players) as Player[] : [];
   const isHost = room.hostId === user.uid;
-  const allReady = playersList.length > 1 && playersList.every(p => p.isReady || p.uid === room.hostId);
+  // Host is always considered ready. Others must check isReady.
+  const allReady = playersList.length >= 1 && playersList.every(p => p.isReady || p.uid === room.hostId);
 
   return (
     <div className="flex flex-col h-screen max-h-screen overflow-hidden bg-orange-50 select-none">
@@ -320,9 +351,9 @@ const GameRoom: React.FC<GameRoomProps> = ({ user, roomId, onLeave, isMuted = fa
               ) : (
                 <button
                   onClick={toggleReady}
-                  className={`flex-1 py-4 md:py-5 rounded-3xl font-black text-xl md:text-2xl shadow-xl transition-all transform active:scale-95 ${room.players[user.uid]?.isReady ? 'bg-green-500 text-white border-b-4 border-green-800 active:border-b-0' : 'bg-orange-400 text-white hover:bg-orange-500 border-b-4 border-orange-800 active:border-b-0'}`}
+                  className={`flex-1 py-4 md:py-5 rounded-3xl font-black text-xl md:text-2xl shadow-xl transition-all transform active:scale-95 ${room.players?.[user.uid]?.isReady ? 'bg-green-500 text-white border-b-4 border-green-800 active:border-b-0' : 'bg-orange-400 text-white hover:bg-orange-500 border-b-4 border-orange-800 active:border-b-0'}`}
                 >
-                  {room.players[user.uid]?.isReady ? '준비완료!' : '준비하기!'}
+                  {room.players?.[user.uid]?.isReady ? '준비완료!' : '준비하기!'}
                 </button>
               )}
             </div>
@@ -354,8 +385,8 @@ const GameRoom: React.FC<GameRoomProps> = ({ user, roomId, onLeave, isMuted = fa
           <div className="text-center bg-yellow-50 p-4 md:p-6 rounded-3xl border-4 border-yellow-400 shadow-xl">
             <h3 className="text-2xl md:text-3xl font-black text-yellow-600 mb-2">🏆 오늘의 챔피언 🏆</h3>
             <div className="flex items-center justify-center gap-4 mb-6">
-                <img src={room.players[room.winnerId!]?.photoURL} className="w-16 h-16 md:w-20 md:h-20 rounded-full border-4 border-yellow-400 shadow-lg" alt="" />
-                <p className="text-3xl md:text-5xl font-bold text-gray-800">{room.players[room.winnerId!]?.name}</p>
+                <img src={room.players?.[room.winnerId!]?.photoURL} className="w-16 h-16 md:w-20 md:h-20 rounded-full border-4 border-yellow-400 shadow-lg" alt="" />
+                <p className="text-3xl md:text-5xl font-bold text-gray-800">{room.players?.[room.winnerId!]?.name}</p>
             </div>
             {isHost && (
               <button
