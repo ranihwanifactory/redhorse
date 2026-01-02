@@ -34,11 +34,10 @@ const GameRoom: React.FC<GameRoomProps> = ({ user, roomId, onLeave, isMuted = fa
   const poolIndex = useRef(0);
 
   useEffect(() => {
-    // Initialize gallop sound pool for rapid taps
     if (gallopPool.current.length === 0) {
-      for (let i = 0; i < 10; i++) {
+      for (let i = 0; i < 15; i++) {
         const audio = new Audio(GALLOP_SFX);
-        audio.volume = 0.5;
+        audio.volume = 0.4;
         gallopPool.current.push(audio);
       }
     }
@@ -58,15 +57,10 @@ const GameRoom: React.FC<GameRoomProps> = ({ user, roomId, onLeave, isMuted = fa
     };
   }, [roomId, onLeave]);
 
-  // Robust Player joining logic
   useEffect(() => {
     if (!room) return;
-    
     const players = room.players || {};
-    const playerCount = Object.keys(players).length;
-
-    // If user is not in the room yet and it's waiting, add them
-    if (!players[user.uid] && playerCount < 4 && room.status === 'waiting') {
+    if (!players[user.uid] && Object.keys(players).length < 4 && room.status === 'waiting') {
       const playerRef = ref(db, `rooms/${roomId}/players/${user.uid}`);
       set(playerRef, {
         uid: user.uid,
@@ -80,17 +74,14 @@ const GameRoom: React.FC<GameRoomProps> = ({ user, roomId, onLeave, isMuted = fa
     }
   }, [room?.status, room?.players, roomId, user]);
 
-  // Host Sync and Cleanup
   useEffect(() => {
     if (room && room.hostId === user.uid) {
       onDisconnect(roomRef).remove();
     }
   }, [room?.hostId, user.uid, roomRef]);
 
-  // Handle Game State Audio
   useEffect(() => {
     if (!room) return;
-
     if (room.status === 'playing') {
       if (!raceBgmRef.current) {
         raceBgmRef.current = new Audio(RACE_BGM);
@@ -111,7 +102,6 @@ const GameRoom: React.FC<GameRoomProps> = ({ user, roomId, onLeave, isMuted = fa
     }
   }, [room?.status, isMuted]);
 
-  // Sync BGM Mute state
   useEffect(() => {
     if (raceBgmRef.current) {
       if (isMuted) raceBgmRef.current.pause();
@@ -119,7 +109,6 @@ const GameRoom: React.FC<GameRoomProps> = ({ user, roomId, onLeave, isMuted = fa
     }
   }, [isMuted, room?.status]);
 
-  // Countdown Logic
   useEffect(() => {
     if (room?.status === 'starting') {
       setLocalCountdown(3);
@@ -170,10 +159,7 @@ const GameRoom: React.FC<GameRoomProps> = ({ user, roomId, onLeave, isMuted = fa
   };
 
   const toggleReady = () => {
-    if (!room || !room.players || !room.players[user.uid]) {
-      console.warn("Player data not found yet, cannot toggle ready.");
-      return;
-    }
+    if (!room || !room.players?.[user.uid]) return;
     playSfx(READY_SFX);
     const playerRef = ref(db, `rooms/${roomId}/players/${user.uid}/isReady`);
     set(playerRef, !room.players[user.uid].isReady);
@@ -184,7 +170,11 @@ const GameRoom: React.FC<GameRoomProps> = ({ user, roomId, onLeave, isMuted = fa
     update(roomRef, { status: 'starting' });
   };
 
-  const handleTap = useCallback(() => {
+  const handleTap = useCallback((e?: React.MouseEvent | React.TouchEvent) => {
+    if (e) {
+      if ('preventDefault' in e) e.preventDefault();
+    }
+    
     if (!room || room.status !== 'playing' || room.winnerId) return;
 
     const currentPlayer = room.players?.[user.uid];
@@ -193,7 +183,6 @@ const GameRoom: React.FC<GameRoomProps> = ({ user, roomId, onLeave, isMuted = fa
     playGallop();
 
     const newProgress = Math.min(currentPlayer.progress + 0.35, 100);
-
     const updates: any = {};
     updates[`players/${user.uid}/progress`] = newProgress;
 
@@ -205,7 +194,7 @@ const GameRoom: React.FC<GameRoomProps> = ({ user, roomId, onLeave, isMuted = fa
     update(roomRef, updates);
     
     setShowTapEffect(true);
-    setTimeout(() => setShowTapEffect(false), 50);
+    setTimeout(() => setShowTapEffect(false), 60);
   }, [room, roomRef, user.uid, isMuted]);
 
   const resetGame = () => {
@@ -230,17 +219,13 @@ const GameRoom: React.FC<GameRoomProps> = ({ user, roomId, onLeave, isMuted = fa
       text: `${user.displayName || '친구'}님이 경기장에 초대했습니다! 함께 달려보아요!`,
       url: `${window.location.origin}${window.location.pathname}#/room/${roomId}`,
     };
-
     try {
-      if (navigator.share) {
-        await navigator.share(shareData);
-      } else {
+      if (navigator.share) await navigator.share(shareData);
+      else {
         await navigator.clipboard.writeText(shareData.url);
         alert('링크가 복사되었습니다!');
       }
-    } catch (err) {
-      console.error('Share failed', err);
-    }
+    } catch (err) {}
   };
 
   const handleManualLeave = async () => {
@@ -269,13 +254,12 @@ const GameRoom: React.FC<GameRoomProps> = ({ user, roomId, onLeave, isMuted = fa
 
   const playersList = room.players ? Object.values(room.players) as Player[] : [];
   const isHost = room.hostId === user.uid;
-  // Everyone else must be ready, host is auto-ready.
   const allReady = playersList.length >= 1 && playersList.every(p => p.isReady || p.uid === room.hostId);
 
   return (
     <div className="flex flex-col h-screen max-h-screen overflow-hidden bg-orange-50 select-none">
       {/* Header */}
-      <div className="p-3 md:p-4 bg-white shadow-md flex justify-between items-center z-10">
+      <div className="p-3 md:p-4 bg-white shadow-md flex justify-between items-center z-10 border-b-2 border-orange-100">
         <div className="flex items-center gap-1 md:gap-2">
           <button onClick={handleManualLeave} className="p-2 hover:bg-gray-100 rounded-full transition-colors active:scale-90">
             <svg className="w-6 h-6 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7"></path></svg>
@@ -301,19 +285,17 @@ const GameRoom: React.FC<GameRoomProps> = ({ user, roomId, onLeave, isMuted = fa
                 <img src={player.photoURL} className="w-5 h-5 rounded-full border border-white" alt="" />
                 <span className="text-white text-[10px] md:text-xs font-bold bg-black bg-opacity-30 px-2 rounded-full truncate max-w-[80px]">{player.name}</span>
             </div>
-
             <div className="absolute right-0 top-0 bottom-0 w-6 md:w-8 flex flex-col gap-1 justify-center items-center bg-white bg-opacity-40">
                 <div className="w-3 md:w-4 h-3 md:h-4 bg-black"></div>
                 <div className="w-3 md:w-4 h-3 md:h-4 bg-white"></div>
                 <div className="w-3 md:w-4 h-3 md:h-4 bg-black"></div>
                 <div className="w-3 md:w-4 h-3 md:h-4 bg-white"></div>
             </div>
-
             <div 
               className={`absolute top-1/2 -translate-y-1/2 transition-all duration-200 ease-out flex flex-col items-center ${room.status === 'playing' ? 'animate-gallop' : ''}`}
               style={{ left: `${player.progress}%`, transform: `translate(-100%, -50%)` }}
             >
-              <div className="text-4xl md:text-5xl drop-shadow-lg filter" style={{ filter: `drop-shadow(0 0 10px ${player.horseColor})` }}>
+              <div className="text-4xl md:text-5xl drop-shadow-lg" style={{ filter: `drop-shadow(0 0 10px ${player.horseColor})` }}>
                 🐎
               </div>
             </div>
@@ -323,7 +305,7 @@ const GameRoom: React.FC<GameRoomProps> = ({ user, roomId, onLeave, isMuted = fa
       </div>
 
       {/* Control Area */}
-      <div className="p-5 md:p-6 bg-white border-t-4 border-orange-200">
+      <div className={`transition-all duration-300 ${room.status === 'playing' ? 'h-1/2' : 'p-5 md:p-6 bg-white border-t-4 border-orange-200'}`}>
         {room.status === 'waiting' && (
           <div className="flex flex-col items-center gap-4">
             <div className="flex flex-wrap justify-center gap-3 md:gap-4 mb-2">
@@ -342,7 +324,6 @@ const GameRoom: React.FC<GameRoomProps> = ({ user, roomId, onLeave, isMuted = fa
                 </div>
               ))}
             </div>
-            
             <div className="w-full max-w-sm flex gap-4">
               {isHost ? (
                 <button
@@ -365,28 +346,38 @@ const GameRoom: React.FC<GameRoomProps> = ({ user, roomId, onLeave, isMuted = fa
         )}
 
         {(room.status === 'starting' || localCountdown !== null) && (
-          <div className="text-center py-6 md:py-8">
+          <div className="text-center py-6 md:py-8 bg-white border-t-4 border-orange-200 h-full">
             <h3 className="text-8xl md:text-9xl font-black text-red-600 animate-bounce">{localCountdown || 3}</h3>
-            <p className="text-xl font-bold text-gray-400 mt-2">준비하세요!</p>
+            <p className="text-xl font-bold text-gray-400 mt-2 uppercase tracking-widest">Ready...</p>
           </div>
         )}
 
         {room.status === 'playing' && (
-          <div className="flex flex-col items-center gap-4 md:gap-6">
-            <button
-              onMouseDown={handleTap}
-              onTouchStart={(e) => { e.preventDefault(); handleTap(); }}
-              className={`w-32 h-32 md:w-40 md:h-40 rounded-full border-b-[12px] md:border-b-[16px] border-orange-700 bg-orange-500 text-white text-3xl md:text-4xl font-black flex items-center justify-center transition-all transform active:translate-y-4 active:border-b-0 shadow-2xl ${showTapEffect ? 'bg-orange-400' : ''}`}
-              style={{ WebkitTapHighlightColor: 'transparent' }}
-            >
-              터치!!
-            </button>
-            <p className="text-red-600 font-black animate-pulse text-base md:text-xl uppercase tracking-widest">누구보다 빠르게 클릭!!!</p>
+          <div 
+            onMouseDown={handleTap}
+            onTouchStart={handleTap}
+            className={`w-full h-full flex flex-col items-center justify-center cursor-pointer transition-all border-t-8 border-orange-700 active:border-t-0 shadow-[inset_0_10px_40px_rgba(0,0,0,0.1)] ${showTapEffect ? 'bg-orange-400 translate-y-2' : 'bg-orange-500'}`}
+            style={{ WebkitTapHighlightColor: 'transparent', touchAction: 'none' }}
+          >
+            <div className="text-center">
+              <span className="text-white text-6xl md:text-8xl font-black italic drop-shadow-[0_4px_4px_rgba(0,0,0,0.5)]">
+                TAB TAB!!
+              </span>
+              <p className="text-white/80 font-black animate-pulse text-lg md:text-2xl mt-4 uppercase tracking-[0.2em]">
+                Fast as you can!
+              </p>
+            </div>
+            {/* Visual Tap Indicator */}
+            {showTapEffect && (
+              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-white/20 text-[20vw] font-black pointer-events-none">
+                HIT!
+              </div>
+            )}
           </div>
         )}
 
         {room.status === 'finished' && (
-          <div className="text-center bg-yellow-50 p-4 md:p-6 rounded-3xl border-4 border-yellow-400 shadow-xl">
+          <div className="text-center bg-yellow-50 p-4 md:p-6 rounded-3xl border-4 border-yellow-400 shadow-xl m-4 bg-white">
             <h3 className="text-2xl md:text-3xl font-black text-yellow-600 mb-2">🏆 오늘의 챔피언 🏆</h3>
             <div className="flex items-center justify-center gap-4 mb-6">
                 <img src={room.players?.[room.winnerId!]?.photoURL} className="w-16 h-16 md:w-20 md:h-20 rounded-full border-4 border-yellow-400 shadow-lg" alt="" />
