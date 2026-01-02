@@ -20,3 +20,12 @@ export interface Room {
   winnerId?: string;
   createdAt: number;
 }
+
+export interface RankingEntry {
+  uid: string;
+  name: string;
+  photoURL: string;
+  wins: number;
+  losses: number;
+  lastUpdated: number;
+}

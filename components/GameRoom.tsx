@@ -1,7 +1,6 @@
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { User } from 'firebase/auth';
-import { ref, onValue, set, remove, onDisconnect, update } from 'firebase/database';
+import { ref, onValue, set, remove, onDisconnect, update, get, runTransaction } from 'firebase/database';
 import { db } from '../firebase';
 import { Room, Player, GameStatus } from '../types';
 
@@ -25,6 +24,7 @@ const GameRoom: React.FC<GameRoomProps> = ({ user, roomId, onLeave, isMuted = fa
   const [room, setRoom] = useState<Room | null>(null);
   const [localCountdown, setLocalCountdown] = useState<number | null>(null);
   const [showTapEffect, setShowTapEffect] = useState(false);
+  const [hasRecordedResult, setHasRecordedResult] = useState(false);
   
   const roomRef = ref(db, `rooms/${roomId}`);
   
@@ -79,6 +79,42 @@ const GameRoom: React.FC<GameRoomProps> = ({ user, roomId, onLeave, isMuted = fa
       onDisconnect(roomRef).remove();
     }
   }, [room?.hostId, user.uid, roomRef]);
+
+  // Record Win/Loss only once when game finishes
+  useEffect(() => {
+    if (room?.status === 'finished' && room.winnerId && !hasRecordedResult) {
+      setHasRecordedResult(true);
+      // Explicitly cast Object.values to Player[] to avoid 'unknown' type errors during iteration.
+      const players = Object.values(room.players || {}) as Player[];
+      
+      players.forEach(async (p) => {
+        const isWinner = p.uid === room.winnerId;
+        const rankingRef = ref(db, `rankings/${p.uid}`);
+        
+        await runTransaction(rankingRef, (currentData) => {
+          if (currentData === null) {
+            return {
+              uid: p.uid,
+              name: p.name,
+              photoURL: p.photoURL,
+              wins: isWinner ? 1 : 0,
+              losses: isWinner ? 0 : 1,
+              lastUpdated: Date.now()
+            };
+          } else {
+            return {
+              ...currentData,
+              wins: isWinner ? (currentData.wins || 0) + 1 : (currentData.wins || 0),
+              losses: isWinner ? (currentData.losses || 0) : (currentData.losses || 0) + 1,
+              lastUpdated: Date.now()
+            };
+          }
+        });
+      });
+    } else if (room?.status === 'waiting') {
+      setHasRecordedResult(false);
+    }
+  }, [room?.status, room?.winnerId, room?.players, hasRecordedResult]);
 
   useEffect(() => {
     if (!room) return;
@@ -383,14 +419,22 @@ const GameRoom: React.FC<GameRoomProps> = ({ user, roomId, onLeave, isMuted = fa
                 <img src={room.players?.[room.winnerId!]?.photoURL} className="w-16 h-16 md:w-20 md:h-20 rounded-full border-4 border-yellow-400 shadow-lg" alt="" />
                 <p className="text-3xl md:text-5xl font-bold text-gray-800">{room.players?.[room.winnerId!]?.name}</p>
             </div>
-            {isHost && (
+            <div className="flex flex-col sm:flex-row justify-center gap-3">
+              {isHost && (
+                <button
+                  onClick={resetGame}
+                  className="bg-red-500 hover:bg-red-600 text-white font-black px-10 py-4 rounded-2xl shadow-xl text-lg md:text-xl transition-all border-b-4 border-red-800 active:border-b-0 transform active:scale-95"
+                >
+                  한 판 더 달리기!
+                </button>
+              )}
               <button
-                onClick={resetGame}
-                className="w-full sm:w-auto bg-red-500 hover:bg-red-600 text-white font-black px-10 py-4 rounded-2xl shadow-xl text-lg md:text-xl transition-all border-b-4 border-red-800 active:border-b-0 transform active:scale-95"
+                onClick={handleManualLeave}
+                className="bg-gray-200 hover:bg-gray-300 text-gray-700 font-black px-10 py-4 rounded-2xl shadow-md text-lg md:text-xl transition-all border-b-4 border-gray-400 active:border-b-0 transform active:scale-95"
               >
-                한 판 더 달리기!
+                경기장 나가기
               </button>
-            )}
+            </div>
           </div>
         )}
       </div>
